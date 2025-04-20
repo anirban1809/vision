@@ -2,6 +2,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <regex>
 #include <sstream>
 #include <string>
 
@@ -20,7 +21,7 @@ Tokenizer::Tokenizer(const std::string& filename) {
 char Tokenizer::Current() { return source.at(position); }
 
 char Tokenizer::Peek() { return source.at(position + 1); }
-
+char Tokenizer::PeekPrevious() { return source.at(position - 1); }
 void Tokenizer::Move(unsigned int step) { position += step; }
 
 void Tokenizer::ProcessString() {
@@ -49,13 +50,21 @@ void Tokenizer::ProcessIdentifier() {
 void Tokenizer::ProcessTextContent() {
     std::string value;
 
-    while (Current() != '<') {
-        value.push_back(Current());
+    while (Current() != '<' && position < source.length() - 1) {
+        if (Current() != '\n') {
+            value.push_back(Current());
+        }
         Move(1);
     }
 
-    tokens.push_back(Token(TokenType::Identifier, value));
+    // trim the leading and trailing whitspaces
+    value = std::regex_replace(value, std::regex("^ +| +$|( ) +"), "$1");
+    if (value.length() > 0) {
+        tokens.push_back(Token(TokenType::TextContent, value));
+    }
 }
+
+Token Tokenizer::Last() { return tokens[tokens.size() - 1]; }
 
 void Tokenizer::Tokenize() {
     while (position < source.length()) {
@@ -74,9 +83,7 @@ void Tokenizer::Tokenize() {
             case '>':
                 Move(1);  // consume the >
                 tokens.push_back(Token(TokenType::TagEnd, ">"));
-                if (Current() != '<' && Current() != ' ' && Current() != '\n') {
-                    ProcessTextContent();
-                }
+                ProcessTextContent();
                 break;
             case '/':
                 if (Peek() == '>') {
@@ -111,6 +118,8 @@ void Tokenizer::Tokenize() {
 
 void Tokenizer::Show() {
     for (auto& token : tokens) {
-        std::cout << "Token: " << token.value << std::endl;
+        std::cout << "Type: " << static_cast<int>(token.type)
+                  << " Length: " << token.value.length()
+                  << " Token: " << token.value << std::endl;
     }
 }

@@ -30,11 +30,13 @@ class Tokenizer {
     void Tokenize();
     void Show();  // temporary function to view all the tokens;
     char Current();
-    char Peek();  // peek the next character
+    char Peek();          // peek the next character
+    char PeekPrevious();  // peek the previous character
     void Move(unsigned int step);
     void ProcessString();
     void ProcessIdentifier();
     void ProcessTextContent();
+    Token Last();
 
    private:
     unsigned int position = 0;  // current position
