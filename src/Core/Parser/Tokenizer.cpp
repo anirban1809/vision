@@ -5,6 +5,7 @@
 #include <regex>
 #include <sstream>
 #include <string>
+#include <vector>
 
 Tokenizer::Tokenizer(const std::string& filename) {
     std::ifstream file(filename);
@@ -16,6 +17,12 @@ Tokenizer::Tokenizer(const std::string& filename) {
 
     source.assign((std::istreambuf_iterator<char>(file)),
                   std::istreambuf_iterator<char>());
+}
+
+Token Tokenizer::CurrentToken() { return tokens[token_position]; }
+Token Tokenizer::Next() {
+    token_position++;
+    return tokens[token_position];
 }
 
 char Tokenizer::Current() { return source.at(position); }
@@ -66,7 +73,7 @@ void Tokenizer::ProcessTextContent() {
 
 Token Tokenizer::Last() { return tokens[tokens.size() - 1]; }
 
-void Tokenizer::Tokenize() {
+std::vector<Token> Tokenizer::Tokenize() {
     while (position < source.length()) {
         char c = source.at(position);
         switch (c) {
@@ -88,7 +95,7 @@ void Tokenizer::Tokenize() {
             case '/':
                 if (Peek() == '>') {
                     Move(2);
-                    tokens.push_back(Token(TokenType::TagEnd, "/>"));
+                    tokens.push_back(Token(TokenType::SelfTagEnd, "/>"));
                 }
                 break;
             case '=':
@@ -114,6 +121,8 @@ void Tokenizer::Tokenize() {
                 ProcessIdentifier();
         }
     }
+
+    return tokens;
 }
 
 void Tokenizer::Show() {

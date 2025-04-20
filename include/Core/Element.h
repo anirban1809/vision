@@ -12,6 +12,7 @@ class Element : public std::enable_shared_from_this<Element> {
     std::vector<std::shared_ptr<Element>> children;
     std::weak_ptr<Element> parent;
 
+    Element() = default;
     Element(const std::string& name) : name(name) {}
 
     void AddChild(const std::shared_ptr<Element>& child) {

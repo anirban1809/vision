@@ -1,7 +1,10 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
+#include <future>
 #include <iostream>
 #include "CocoaHelper.h"
+#include "Core/Element.h"
+#include "Core/Parser/Parser.h"
 #include "Core/Parser/Tokenizer.h"
 
 // Vertex + Fragment shaders for blue triangle
@@ -67,7 +70,10 @@ int main() {
     Tokenizer tokenizer(
         "/Users/anirban/Documents/Code/vision/example/example.html");
     tokenizer.Tokenize();
-    tokenizer.Show();
+    tokenizer.Reset();  // move the position pointer back to 0;
+    Parser parser(tokenizer);
+    std::shared_ptr<Element> e = parser.Parse();
+
     exit(0);
 
     glfwInit();

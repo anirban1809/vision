@@ -5,7 +5,8 @@
 enum class TokenType {
     OpenTagStart,   // `<tag`
     CloseTagStart,  // `</tag`
-    TagEnd,         // `>` or `/>`
+    TagEnd,         // `>`
+    SelfTagEnd,     // `/>`
     Identifier,     // tag names and attribute names
     Equals,         // `=`
     QuotedString,   // `"value"`
@@ -26,8 +27,10 @@ struct Token {
 class Tokenizer {
    public:
     explicit Tokenizer(const std::string& filename);
+    void Reset() { position = 0; }
     Token Next();
-    void Tokenize();
+    Token CurrentToken();
+    std::vector<Token> Tokenize();
     void Show();  // temporary function to view all the tokens;
     char Current();
     char Peek();          // peek the next character
@@ -39,7 +42,8 @@ class Tokenizer {
     Token Last();
 
    private:
-    unsigned int position = 0;  // current position
+    unsigned int position = 0;  // current char position
+    unsigned int token_position = 0;
     std::string source;
     std::vector<Token> tokens;
 };
