@@ -1,0 +1,116 @@
+#include "Core/Parser/Tokenizer.h"
+#include <fstream>
+#include <iostream>
+#include <iterator>
+#include <sstream>
+#include <string>
+
+Tokenizer::Tokenizer(const std::string& filename) {
+    std::ifstream file(filename);
+
+    if (!file) {
+        std::cerr << "Failed to open source file. Exiting" << std::endl;
+        exit(1);
+    }
+
+    source.assign((std::istreambuf_iterator<char>(file)),
+                  std::istreambuf_iterator<char>());
+}
+
+char Tokenizer::Current() { return source.at(position); }
+
+char Tokenizer::Peek() { return source.at(position + 1); }
+
+void Tokenizer::Move(unsigned int step) { position += step; }
+
+void Tokenizer::ProcessString() {
+    std::string value;
+
+    while (Current() != '"') {
+        value.push_back(Current());
+        Move(1);
+    }
+
+    tokens.push_back(Token(TokenType::QuotedString, value));
+}
+
+void Tokenizer::ProcessIdentifier() {
+    std::string value;
+
+    while (Current() != ' ' && Current() != '=' && Current() != '>' &&
+           Current() != '\n') {
+        value.push_back(Current());
+        Move(1);
+    }
+
+    tokens.push_back(Token(TokenType::Identifier, value));
+}
+
+void Tokenizer::ProcessTextContent() {
+    std::string value;
+
+    while (Current() != '<') {
+        value.push_back(Current());
+        Move(1);
+    }
+
+    tokens.push_back(Token(TokenType::Identifier, value));
+}
+
+void Tokenizer::Tokenize() {
+    while (position < source.length()) {
+        char c = source.at(position);
+        switch (c) {
+            case '<':
+                if (Peek() == '/') {
+                    Move(2);
+                    tokens.push_back(Token(TokenType::CloseTagStart, "</"));
+                } else {
+                    Move(1);
+                    tokens.push_back(Token(TokenType::OpenTagStart, "<"));
+                }
+                break;
+
+            case '>':
+                Move(1);  // consume the >
+                tokens.push_back(Token(TokenType::TagEnd, ">"));
+                if (Current() != '<' && Current() != ' ' && Current() != '\n') {
+                    ProcessTextContent();
+                }
+                break;
+            case '/':
+                if (Peek() == '>') {
+                    Move(2);
+                    tokens.push_back(Token(TokenType::TagEnd, "/>"));
+                }
+                break;
+            case '=':
+                Move(1);
+                tokens.push_back(Token(TokenType::Equals, "="));
+                break;
+
+            case '"':
+                Move(1);  // consume start "
+                ProcessString();
+                Move(1);  // consume end "
+                break;
+
+            case ' ':
+                Move(1);
+                break;
+
+            case '\n':
+                Move(1);
+                break;
+
+            default:
+                ProcessIdentifier();
+        }
+    }
+}
+
+void Tokenizer::Show() {
+    for (auto& token : tokens) {
+        std::cout << "Token: " << token.value << std::endl;
+    }
+}
