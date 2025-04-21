@@ -74,7 +74,7 @@ void MakeWindowBorderless(GLFWwindow *window) {
   [nsWindow setContentView:dragView];
 
   // Apply rounded mask
-  ApplyRoundedCorners(dragView, 20.0);
+  ApplyRoundedCorners(dragView, 10.0);
 
   // Update mask on resize
   [[NSNotificationCenter defaultCenter]
@@ -82,6 +82,6 @@ void MakeWindowBorderless(GLFWwindow *window) {
                   object:dragView
                    queue:nil
               usingBlock:^(NSNotification *note) {
-                ApplyRoundedCorners(dragView, 20.0);
+                ApplyRoundedCorners(dragView, 10.0);
               }];
 }

@@ -72,9 +72,9 @@ int main() {
     tokenizer.Tokenize();
     tokenizer.Reset();  // move the position pointer back to 0;
     Parser parser(tokenizer);
-    std::shared_ptr<Element> e = parser.Parse();
+    std::shared_ptr<Element> document = parser.Parse();
 
-    exit(0);
+    // exit(0);
 
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -101,7 +101,7 @@ int main() {
     MakeWindowBorderless(window);
 
     // === Create FBO 400x400 ===
-    const int fbWidth = 400, fbHeight = 400;
+    const int fbWidth = 1024, fbHeight = 768;
     GLuint fbo, colorTex;
     glGenFramebuffers(1, &fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
