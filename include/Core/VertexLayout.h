@@ -4,7 +4,7 @@
 #include "Types.h"
 #include <vector>
 
-enum class ShaderType {
+enum class ShaderType : char {
     Float,
     Float2,
     Float3,

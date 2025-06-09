@@ -1,190 +1,248 @@
+// Build with: g++ main.cpp -lglfw -lGLEW -lGL -lfreetype -ldl -lpthread -lX11
+// -lXrandr -lXi -lXxf86vm -lXcursor -lXinerama On macOS: g++ main.cpp -lglfw
+// -lGLEW -framework OpenGL -lfreetype
+
+#include <iostream>
+#include <map>
+#include <string>
+
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
-#include <future>
-#include <iostream>
-#include "CocoaHelper.h"
-#include "Core/Element.h"
-#include "Core/Parser/Parser.h"
-#include "Core/Parser/Tokenizer.h"
 
-// Vertex + Fragment shaders for blue triangle
-const char *vertexShaderSource = R"(
+#include <ft2build.h>
+#include FT_FREETYPE_H
+
+// glm is only used for math, you can remove it and use plain floats if you wish
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+// Shader sources
+const char* vertexShaderSource = R"(
 #version 330 core
-layout (location = 0) in vec2 aPos;
-void main() {
-    gl_Position = vec4(aPos, 0.0, 1.0);
+layout (location = 0) in vec4 vertex; // <vec2 pos, vec2 tex>
+out vec2 TexCoords;
+uniform mat4 projection;
+void main()
+{
+    gl_Position = projection * vec4(vertex.xy, 0.0, 1.0);
+    TexCoords = vertex.zw;
 }
 )";
 
-const char *fragmentShaderSource = R"(
+const char* fragmentShaderSource = R"(
 #version 330 core
+in vec2 TexCoords;
 out vec4 FragColor;
-void main() {
-    FragColor = vec4(0.0, 0.5, 1.0, 1.0); // Blue
+uniform sampler2D text;
+uniform vec3 textColor;
+void main()
+{
+    float alpha = texture(text, TexCoords).r;
+    FragColor = vec4(textColor, alpha);
 }
 )";
 
-// Shader for displaying the framebuffer
-const char *screenVertexShader = R"(
-#version 330 core
-layout (location = 0) in vec2 aPos;
-layout (location = 1) in vec2 aUV;
-out vec2 TexCoord;
-void main() {
-    gl_Position = vec4(aPos, 0.0, 1.0);
-    TexCoord = aUV;
-}
-)";
+// Holds all state information relevant to a character as loaded using FreeType
+struct Character {
+    GLuint TextureID;    // ID handle of the glyph texture
+    glm::ivec2 Size;     // Size of glyph
+    glm::ivec2 Bearing;  // Offset from baseline to left/top of glyph
+    GLuint Advance;      // Offset to advance to next glyph
+};
 
-const char *screenFragmentShader = R"(
-#version 330 core
-out vec4 FragColor;
-in vec2 TexCoord;
-uniform sampler2D screenTexture;
-void main() {
-    FragColor = texture(screenTexture, TexCoord);
-}
-)";
+std::map<GLchar, Character> Characters;
+GLuint VAO, VBO;
 
-// Shader utils
-GLuint CompileShader(GLenum type, const char *src) {
+void RenderText(GLuint shader, std::string text, float x, float y, float scale,
+                glm::vec3 color, int win_height) {
+    // Activate corresponding render state
+    glUseProgram(shader);
+    glUniform3f(glGetUniformLocation(shader, "textColor"), color.x, color.y,
+                color.z);
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(VAO);
+
+    // Iterate through all characters
+    std::string::const_iterator c;
+    for (c = text.begin(); c != text.end(); c++) {
+        Character ch = Characters[*c];
+
+        float xpos = x + ch.Bearing.x * scale;
+        float ypos = y - (ch.Size.y - ch.Bearing.y) * scale;
+        // OpenGL's y=0 is at bottom, FreeType's is top, so we invert y for
+        // OpenGL coords
+        ypos = win_height - ypos - ch.Size.y * scale;
+
+        float w = ch.Size.x * scale;
+        float h = ch.Size.y * scale;
+        // Update VBO for each character
+        float vertices[6][4] = {
+            {xpos, ypos + h, 0.0f, 0.0f},    {xpos, ypos, 0.0f, 1.0f},
+            {xpos + w, ypos, 1.0f, 1.0f},
+
+            {xpos, ypos + h, 0.0f, 0.0f},    {xpos + w, ypos, 1.0f, 1.0f},
+            {xpos + w, ypos + h, 1.0f, 0.0f}};
+        // Render glyph texture over quad
+        glBindTexture(GL_TEXTURE_2D, ch.TextureID);
+        // Update content of VBO memory
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+        // Render quad
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+    }
+    glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+GLuint CompileShader(const char* src, GLenum type) {
     GLuint shader = glCreateShader(type);
-    glShaderSource(shader, 1, &src, nullptr);
+    glShaderSource(shader, 1, &src, 0);
     glCompileShader(shader);
+    GLint status;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+    if (!status) {
+        char buffer[512];
+        glGetShaderInfoLog(shader, 512, NULL, buffer);
+        std::cerr << "Shader Compile Failed:\n" << buffer << std::endl;
+    }
     return shader;
 }
 
-GLuint CreateProgram(const char *vs, const char *fs) {
-    GLuint v = CompileShader(GL_VERTEX_SHADER, vs);
-    GLuint f = CompileShader(GL_FRAGMENT_SHADER, fs);
-    GLuint program = glCreateProgram();
-    glAttachShader(program, v);
-    glAttachShader(program, f);
-    glLinkProgram(program);
-    glDeleteShader(v);
-    glDeleteShader(f);
-    return program;
+GLuint CreateProgram(const char* vs, const char* fs) {
+    GLuint vertex = CompileShader(vs, GL_VERTEX_SHADER);
+    GLuint frag = CompileShader(fs, GL_FRAGMENT_SHADER);
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vertex);
+    glAttachShader(prog, frag);
+    glLinkProgram(prog);
+    GLint status;
+    glGetProgramiv(prog, GL_LINK_STATUS, &status);
+    if (!status) {
+        char buffer[512];
+        glGetProgramInfoLog(prog, 512, NULL, buffer);
+        std::cerr << "Program Link Failed:\n" << buffer << std::endl;
+    }
+    glDeleteShader(vertex);
+    glDeleteShader(frag);
+    return prog;
 }
 
 int main() {
-    Tokenizer tokenizer(
-        "/Users/anirban/Documents/Code/vision/example/example.html");
-    tokenizer.Tokenize();
-    tokenizer.Reset();  // move the position pointer back to 0;
-    Parser parser(tokenizer);
-    std::shared_ptr<Element> document = parser.Parse();
-
-    // exit(0);
-
-    glfwInit();
+    // --------- Initialize GLFW ----------
+    if (!glfwInit()) {
+        std::cerr << "Could not init GLFW\n";
+        return -1;
+    }
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
-
-    int windowWidth = 1024, windowHeight = 768;
-    GLFWwindow *window = glfwCreateWindow(windowWidth, windowHeight,
-                                          "Frameless", nullptr, nullptr);
-    if (!window) return -1;
-
+    int win_width = 800, win_height = 600;
+    GLFWwindow* window = glfwCreateWindow(
+        win_width, win_height, "OpenGL TTF Font Rendering", NULL, NULL);
+    if (!window) {
+        std::cerr << "Failed to create GLFW window\n";
+        glfwTerminate();
+        return -1;
+    }
     glfwMakeContextCurrent(window);
 
-    // === Initialize GLEW ===
+    // --------- Initialize GLEW ----------
     glewExperimental = GL_TRUE;
-    GLenum glewErr = glewInit();
-    if (glewErr != GLEW_OK) {
-        std::cerr << "GLEW init failed: " << glewGetErrorString(glewErr)
-                  << "\n";
+    if (glewInit() != GLEW_OK) {
+        std::cerr << "Failed to init GLEW\n";
         return -1;
     }
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    MakeWindowBorderless(window);
+    // --------- Build Shader Program ----------
+    GLuint shader = CreateProgram(vertexShaderSource, fragmentShaderSource);
 
-    // === Create FBO 400x400 ===
-    const int fbWidth = 1024, fbHeight = 768;
-    GLuint fbo, colorTex;
-    glGenFramebuffers(1, &fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    // --------- Set up projection matrix ----------
+    glm::mat4 projection =
+        glm::ortho(0.0f, float(win_width), 0.0f, float(win_height));
+    glUseProgram(shader);
+    glUniformMatrix4fv(glGetUniformLocation(shader, "projection"), 1, GL_FALSE,
+                       &projection[0][0]);
 
-    glGenTextures(1, &colorTex);
-    glBindTexture(GL_TEXTURE_2D, colorTex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, fbWidth, fbHeight, 0, GL_RGB,
-                 GL_UNSIGNED_BYTE, nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-                           colorTex, 0);
-
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-        std::cerr << "Framebuffer not complete\n";
+    // --------- Initialize FreeType and load font ----------
+    FT_Library ft;
+    if (FT_Init_FreeType(&ft)) {
+        std::cerr << "Could not init FreeType Library\n";
         return -1;
     }
+    // Set this to the path of a real TTF font on your system!
+    const char* font_path = "arial.ttf";
+    FT_Face face;
+    if (FT_New_Face(ft, font_path, 0, &face)) {
+        std::cerr << "Failed to load font: " << font_path << std::endl;
+        return -1;
+    }
+    FT_Set_Pixel_Sizes(face, 0, 48);  // height in pixels
 
-    // === Blue triangle ===
-    float triangle[] = {-0.5f, -0.5f, 0.5f, -0.5f, 0.0f, 0.5f};
-    GLuint triVAO, triVBO;
-    glGenVertexArrays(1, &triVAO);
-    glGenBuffers(1, &triVBO);
-    glBindVertexArray(triVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, triVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(triangle), triangle, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float),
-                          (void *)0);
+    // --------- Load first 128 ASCII characters ----------
+    glPixelStorei(GL_UNPACK_ALIGNMENT,
+                  1);  // disable byte-alignment restriction
+    for (GLubyte c = 32; c < 128; c++) {
+        if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
+            std::cerr << "Failed to load Glyph: " << (char)c << std::endl;
+            continue;
+        }
+        GLuint texture;
+        glGenTextures(1, &texture);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, face->glyph->bitmap.width,
+                     face->glyph->bitmap.rows, 0, GL_RED, GL_UNSIGNED_BYTE,
+                     face->glyph->bitmap.buffer);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        Character character = {
+            texture,
+            glm::ivec2(face->glyph->bitmap.width, face->glyph->bitmap.rows),
+            glm::ivec2(face->glyph->bitmap_left, face->glyph->bitmap_top),
+            (GLuint)face->glyph->advance.x};
+        Characters.insert(std::pair<char, Character>(c, character));
+    }
+    FT_Done_Face(face);
+    FT_Done_FreeType(ft);
+
+    // --------- Configure VAO/VBO for texture quads ----------
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 4, NULL, GL_DYNAMIC_DRAW);
     glEnableVertexAttribArray(0);
-    GLuint triangleProgram =
-        CreateProgram(vertexShaderSource, fragmentShaderSource);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
 
-    // === Screen quad ===
-    float quad[] = {-1.0f, 1.0f,  0.0f, 1.0f, -1.0f, -1.0f, 0.0f, 0.0f,
-                    1.0f,  -1.0f, 1.0f, 0.0f, 1.0f,  1.0f,  1.0f, 1.0f};
-    unsigned int indices[] = {0, 1, 2, 0, 2, 3};
-    GLuint quadVAO, quadVBO, quadEBO;
-    glGenVertexArrays(1, &quadVAO);
-    glGenBuffers(1, &quadVBO);
-    glGenBuffers(1, &quadEBO);
-    glBindVertexArray(quadVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, quadEBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices,
-                 GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
-                          (void *)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
-                          (void *)(2 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    GLuint screenProgram =
-        CreateProgram(screenVertexShader, screenFragmentShader);
-
-    // === Main loop ===
+    // --------- Render Loop ----------
     while (!glfwWindowShouldClose(window)) {
-        // --- Render to FBO ---
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-        glViewport(0, 0, fbWidth, fbHeight);
+        glfwGetFramebufferSize(window, &win_width, &win_height);
+        glViewport(0, 0, win_width, win_height);
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
-        glUseProgram(triangleProgram);
-        glBindVertexArray(triVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
 
-        // --- Render FBO to screen ---
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, windowWidth, windowHeight);
-        glClearColor(0, 0, 0, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        // Update projection for window resizing
+        projection =
+            glm::ortho(0.0f, float(win_width), 0.0f, float(win_height));
+        glUseProgram(shader);
+        glUniformMatrix4fv(glGetUniformLocation(shader, "projection"), 1,
+                           GL_FALSE, &projection[0][0]);
 
-        glUseProgram(screenProgram);
-        glBindVertexArray(quadVAO);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, colorTex);
-        glUniform1i(glGetUniformLocation(screenProgram, "screenTexture"), 0);
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+        // Draw text
+        RenderText(shader, "Hello, OpenGL!", 25.0f, win_height - 80.0f, 1.0f,
+                   glm::vec3(0.5, 0.8f, 0.2f), win_height);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
 
+    glfwDestroyWindow(window);
     glfwTerminate();
     return 0;
 }
