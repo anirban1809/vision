@@ -68,10 +68,11 @@ void RenderText(GLuint shader, std::string text, float x, float y, float scale,
         Character ch = Characters[*c];
 
         float xpos = x + ch.Bearing.x * scale;
-        float ypos = y - (ch.Size.y - ch.Bearing.y) * scale;
-        // OpenGL's y=0 is at bottom, FreeType's is top, so we invert y for
-        // OpenGL coords
+        // y is the baseline; OpenGL's origin is bottom-left
+        float ypos = y - (ch.Bearing.y * scale);
         ypos = win_height - ypos - ch.Size.y * scale;
+
+        x += (ch.Advance >> 6) * scale;  // Advance is in 1/64th pixels
 
         float w = ch.Size.x * scale;
         float h = ch.Size.y * scale;
@@ -172,7 +173,7 @@ int main() {
         return -1;
     }
     // Set this to the path of a real TTF font on your system!
-    const char* font_path = "arial.ttf";
+    const char* font_path = "/Users/anirban/Documents/Code/vision/Arial.ttf";
     FT_Face face;
     if (FT_New_Face(ft, font_path, 0, &face)) {
         std::cerr << "Failed to load font: " << font_path << std::endl;
@@ -235,8 +236,9 @@ int main() {
                            GL_FALSE, &projection[0][0]);
 
         // Draw text
-        RenderText(shader, "Hello, OpenGL!", 25.0f, win_height - 80.0f, 1.0f,
-                   glm::vec3(0.5, 0.8f, 0.2f), win_height);
+        RenderText(
+            shader, "Hello World! A quick brown fox jumped over a lazy dog",
+            25.0f, win_height - 80.0f, 1.0f, glm::vec3(0.5f), win_height);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
