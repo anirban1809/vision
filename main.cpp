@@ -1,7 +1,3 @@
-// Build with: g++ main.cpp -lglfw -lGLEW -lGL -lfreetype -ldl -lpthread -lX11
-// -lXrandr -lXi -lXxf86vm -lXcursor -lXinerama On macOS: g++ main.cpp -lglfw
-// -lGLEW -framework OpenGL -lfreetype
-
 #include <iostream>
 #include <map>
 #include <string>
@@ -12,7 +8,6 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
-// glm is only used for math, you can remove it and use plain floats if you wish
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -35,9 +30,10 @@ in vec2 TexCoords;
 out vec4 FragColor;
 uniform sampler2D text;
 uniform vec3 textColor;
+uniform bool useAlphaTexture;
 void main()
 {
-    float alpha = texture(text, TexCoords).r;
+    float alpha = useAlphaTexture ? texture(text, TexCoords).r : 1.0;
     FragColor = vec4(textColor, alpha);
 }
 )";
@@ -55,42 +51,65 @@ GLuint VAO, VBO;
 
 void RenderText(GLuint shader, std::string text, float x, float y, float scale,
                 glm::vec3 color, int win_height) {
-    // Activate corresponding render state
     glUseProgram(shader);
     glUniform3f(glGetUniformLocation(shader, "textColor"), color.x, color.y,
                 color.z);
+    glUniform1i(glGetUniformLocation(shader, "useAlphaTexture"), 1);
     glActiveTexture(GL_TEXTURE0);
     glBindVertexArray(VAO);
 
-    // Iterate through all characters
-    std::string::const_iterator c;
-    for (c = text.begin(); c != text.end(); c++) {
+    for (auto c = text.begin(); c != text.end(); c++) {
         Character ch = Characters[*c];
 
         float xpos = x + ch.Bearing.x * scale;
-        // y is the baseline; OpenGL's origin is bottom-left
         float ypos = y - (ch.Bearing.y * scale);
         ypos = win_height - ypos - ch.Size.y * scale;
 
-        x += (ch.Advance >> 6) * scale;  // Advance is in 1/64th pixels
-
         float w = ch.Size.x * scale;
         float h = ch.Size.y * scale;
-        // Update VBO for each character
+
         float vertices[6][4] = {
             {xpos, ypos + h, 0.0f, 0.0f},    {xpos, ypos, 0.0f, 1.0f},
             {xpos + w, ypos, 1.0f, 1.0f},
 
             {xpos, ypos + h, 0.0f, 0.0f},    {xpos + w, ypos, 1.0f, 1.0f},
             {xpos + w, ypos + h, 1.0f, 0.0f}};
-        // Render glyph texture over quad
+
         glBindTexture(GL_TEXTURE_2D, ch.TextureID);
-        // Update content of VBO memory
         glBindBuffer(GL_ARRAY_BUFFER, VBO);
         glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
-        // Render quad
         glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        x += (ch.Advance >> 6) * scale;
     }
+    glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void RenderSquare(GLuint shader, float x, float y, float width, float height,
+                  glm::vec3 color, int win_height) {
+    glUseProgram(shader);
+    glUniform3f(glGetUniformLocation(shader, "textColor"), color.x, color.y,
+                color.z);
+    glUniform1i(glGetUniformLocation(shader, "useAlphaTexture"),
+                0);  // Use solid color, not texture alpha
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindVertexArray(VAO);
+
+    float xpos = x;
+    float ypos = win_height - y - height;
+
+    float vertices[6][4] = {{xpos, ypos + height, 0.0f, 0.0f},
+                            {xpos, ypos, 0.0f, 0.0f},
+                            {xpos + width, ypos, 0.0f, 0.0f},
+
+                            {xpos, ypos + height, 0.0f, 0.0f},
+                            {xpos + width, ypos, 0.0f, 0.0f},
+                            {xpos + width, ypos + height, 0.0f, 0.0f}};
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
     glBindVertexArray(0);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
@@ -137,7 +156,7 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    int win_width = 800, win_height = 600;
+    int win_width = 1024, win_height = 768;
     GLFWwindow* window = glfwCreateWindow(
         win_width, win_height, "OpenGL TTF Font Rendering", NULL, NULL);
     if (!window) {
@@ -165,6 +184,7 @@ int main() {
     glUseProgram(shader);
     glUniformMatrix4fv(glGetUniformLocation(shader, "projection"), 1, GL_FALSE,
                        &projection[0][0]);
+    glUniform1i(glGetUniformLocation(shader, "text"), 0);  // Texture unit 0
 
     // --------- Initialize FreeType and load font ----------
     FT_Library ft;
@@ -173,7 +193,8 @@ int main() {
         return -1;
     }
     // Set this to the path of a real TTF font on your system!
-    const char* font_path = "/Users/anirban/Documents/Code/vision/Arial.ttf";
+    const char* font_path =
+        "/Users/anirban/Documents/Code/vision/DroidSans.ttf";
     FT_Face face;
     if (FT_New_Face(ft, font_path, 0, &face)) {
         std::cerr << "Failed to load font: " << font_path << std::endl;
@@ -210,7 +231,7 @@ int main() {
     FT_Done_Face(face);
     FT_Done_FreeType(ft);
 
-    // --------- Configure VAO/VBO for texture quads ----------
+    // --------- Configure VAO/VBO for texture quads and squares ----------
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
     glBindVertexArray(VAO);
@@ -237,8 +258,21 @@ int main() {
 
         // Draw text
         RenderText(
-            shader, "Hello World! A quick brown fox jumped over a lazy dog",
-            25.0f, win_height - 80.0f, 1.0f, glm::vec3(0.5f), win_height);
+            shader,
+            "Line 1: Hello World! A quick brown fox jumped over a lazy dog",
+            25.0f, win_height - 80.0f, 1.0f, glm::vec3(1.0f), win_height);
+
+        RenderText(
+            shader,
+            "Line 2: Hello World! A quick brown fox jumped over a lazy dog",
+            25.0f, win_height - 200.0f, 1.0f, glm::vec3(1.0f), win_height);
+
+        // Draw a green square at (600, 300), size 200x120
+        RenderSquare(shader, 600, 300, 200, 120, glm::vec3(0.1f, 0.7f, 0.2f),
+                     win_height);
+
+        RenderSquare(shader, 400, 200, 200, 120, glm::vec3(0.1f, 0.7f, 0.2f),
+                     win_height);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
