@@ -31,11 +31,32 @@ out vec4 FragColor;
 uniform sampler2D text;
 uniform vec3 textColor;
 uniform bool useAlphaTexture;
+uniform float radius;    // Rounded corner radius (in pixels)
+uniform vec2 rectSize;   // (width, height) in pixels
+
 void main()
 {
     float alpha = useAlphaTexture ? texture(text, TexCoords).r : 1.0;
+
+    if (!useAlphaTexture && radius > 0.0) {
+        // Signed distance to rounded rectangle
+        vec2 local = TexCoords;
+        vec2 halfSize = rectSize * 0.5;
+        vec2 p = local - halfSize;
+        vec2 rect = halfSize - vec2(radius);
+        vec2 d = abs(p) - rect;
+        float dist = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - radius;
+
+        // Smooth edge, 1-pixel transition
+        float edgeWidth = 1.0;
+        alpha *= 1.0 - smoothstep(0.0, edgeWidth, dist);
+        if (alpha < 0.01)
+            discard;
+    }
+
     FragColor = vec4(textColor, alpha);
 }
+
 )";
 
 // Holds all state information relevant to a character as loaded using FreeType
@@ -55,6 +76,8 @@ void RenderText(GLuint shader, std::string text, float x, float y, float scale,
     glUniform3f(glGetUniformLocation(shader, "textColor"), color.x, color.y,
                 color.z);
     glUniform1i(glGetUniformLocation(shader, "useAlphaTexture"), 1);
+    glUniform2f(glGetUniformLocation(shader, "rectSize"), 0, 0);
+    glUniform1f(glGetUniformLocation(shader, "radius"), 0.0f);
     glActiveTexture(GL_TEXTURE0);
     glBindVertexArray(VAO);
 
@@ -87,25 +110,33 @@ void RenderText(GLuint shader, std::string text, float x, float y, float scale,
 }
 
 void RenderSquare(GLuint shader, float x, float y, float width, float height,
-                  glm::vec3 color, int win_height) {
+                  glm::vec3 color, int win_height, float radius, bool visible) {
+    if (!visible) {
+        return;
+    }
+
     glUseProgram(shader);
     glUniform3f(glGetUniformLocation(shader, "textColor"), color.x, color.y,
                 color.z);
     glUniform1i(glGetUniformLocation(shader, "useAlphaTexture"),
-                0);  // Use solid color, not texture alpha
+                0);  // No texture alpha
+    glUniform1f(glGetUniformLocation(shader, "radius"), radius);
+    glUniform2f(glGetUniformLocation(shader, "rectSize"), width, height);
+
     glBindTexture(GL_TEXTURE_2D, 0);
     glBindVertexArray(VAO);
 
     float xpos = x;
     float ypos = win_height - y - height;
 
-    float vertices[6][4] = {{xpos, ypos + height, 0.0f, 0.0f},
+    // TexCoords: local in [0, width] x [0, height]
+    float vertices[6][4] = {{xpos, ypos + height, 0.0f, height},
                             {xpos, ypos, 0.0f, 0.0f},
-                            {xpos + width, ypos, 0.0f, 0.0f},
+                            {xpos + width, ypos, width, 0.0f},
 
-                            {xpos, ypos + height, 0.0f, 0.0f},
-                            {xpos + width, ypos, 0.0f, 0.0f},
-                            {xpos + width, ypos + height, 0.0f, 0.0f}};
+                            {xpos, ypos + height, 0.0f, height},
+                            {xpos + width, ypos, width, 0.0f},
+                            {xpos + width, ypos + height, width, height}};
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
     glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -246,7 +277,7 @@ int main() {
     while (!glfwWindowShouldClose(window)) {
         glfwGetFramebufferSize(window, &win_width, &win_height);
         glViewport(0, 0, win_width, win_height);
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        glClearColor(0.8f, 0.8f, 0.8f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
         // Update projection for window resizing
@@ -257,22 +288,23 @@ int main() {
                            GL_FALSE, &projection[0][0]);
 
         // Draw text
-        RenderText(
-            shader,
-            "Line 1: Hello World! A quick brown fox jumped over a lazy dog",
-            25.0f, win_height - 80.0f, 1.0f, glm::vec3(1.0f), win_height);
 
         RenderText(
             shader,
             "Line 2: Hello World! A quick brown fox jumped over a lazy dog",
-            25.0f, win_height - 200.0f, 1.0f, glm::vec3(1.0f), win_height);
+            25.0f, win_height - 200.0f, 1.0f, glm::vec3(0.0f), win_height);
 
-        // Draw a green square at (600, 300), size 200x120
-        RenderSquare(shader, 600, 300, 200, 120, glm::vec3(0.1f, 0.7f, 0.2f),
-                     win_height);
-
+        RenderSquare(shader, 25.0f, win_height - 90.0f, 200, 120,
+                     glm::vec3(0.3f, 0.0f, 0.9f), win_height, 0.0f, true);
         RenderSquare(shader, 400, 200, 200, 120, glm::vec3(0.1f, 0.7f, 0.2f),
-                     win_height);
+                     win_height, 30.0f, true);
+        RenderSquare(shader, 700, 200, 200, 120, glm::vec3(0.1f, 0.7f, 0.2f),
+                     win_height, 30.0f, true);
+
+        RenderText(
+            shader,
+            "Line 1: Hello World! A quick brown fox jumped over a lazy dog",
+            25.0f, win_height - 80.0f, 1.0f, glm::vec3(0.0f), win_height);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
