@@ -1,13 +1,11 @@
-#ifndef __WINDOW_H__
-#define __WINDOW_H__
-
+#include <string>
 #include <GLFW/glfw3.h>
-
 class Window {
    public:
-    GLFWwindow *GetGLFWWindow();
+    Window(int width, int height, const std::string& name);
+    ~Window();
+    bool ShouldClose() const;
 
    private:
-    GLFWwindow *glfwWindow;
+    GLFWwindow* window;
 };
-#endif  // __WINDOW_H__

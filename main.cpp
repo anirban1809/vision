@@ -1,5 +1,6 @@
 #include <iostream>
 #include <map>
+#include <sstream>
 #include <string>
 
 #include <GL/glew.h>
@@ -130,13 +131,14 @@ void RenderSquare(GLuint shader, float x, float y, float width, float height,
     float ypos = win_height - y - height;
 
     // TexCoords: local in [0, width] x [0, height]
-    float vertices[6][4] = {{xpos, ypos + height, 0.0f, height},
-                            {xpos, ypos, 0.0f, 0.0f},
-                            {xpos + width, ypos, width, 0.0f},
+    float vertices[6][4] = {
+        {xpos, ypos + height, 0.0f, height},
+        {xpos, ypos, 0.0f, 0.0f},
+        {xpos + width * 2, ypos, width * 2, 0.0f},
 
-                            {xpos, ypos + height, 0.0f, height},
-                            {xpos + width, ypos, width, 0.0f},
-                            {xpos + width, ypos + height, width, height}};
+        {xpos, ypos + height, 0.0f, height},
+        {xpos + width * 2, ypos, width * 2, 0.0f},
+        {xpos + width * 2, ypos + height, width * 2, height}};
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
     glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -176,6 +178,30 @@ GLuint CreateProgram(const char* vs, const char* fs) {
     glDeleteShader(vertex);
     glDeleteShader(frag);
     return prog;
+}
+
+glm::vec3 ConvertColor(const std::string& colorhex) {
+    int r, g, b;
+    std::stringstream ss;
+    glm::vec3 result;
+
+    ss << std::hex << colorhex.substr(1, 2);
+    ss >> r;
+    ss.clear();
+
+    ss << std::hex << colorhex.substr(3, 2);
+    ss >> g;
+    ss.clear();
+
+    ss << std::hex << colorhex.substr(5, 2);
+    ss >> b;
+    ss.clear();
+
+    result.r = r / 255.0f;
+    result.g = g / 255.0f;
+    result.b = b / 255.0f;
+
+    return result;
 }
 
 int main() {
@@ -224,14 +250,13 @@ int main() {
         return -1;
     }
     // Set this to the path of a real TTF font on your system!
-    const char* font_path =
-        "/Users/anirban/Documents/Code/vision/DroidSans.ttf";
+    const char* font_path = "/Users/anirban/Documents/Code/vision/Arial.ttf";
     FT_Face face;
     if (FT_New_Face(ft, font_path, 0, &face)) {
         std::cerr << "Failed to load font: " << font_path << std::endl;
         return -1;
     }
-    FT_Set_Pixel_Sizes(face, 0, 48);  // height in pixels
+    FT_Set_Pixel_Sizes(face, 0, 25);  // height in pixels
 
     // --------- Load first 128 ASCII characters ----------
     glPixelStorei(GL_UNPACK_ALIGNMENT,
@@ -294,12 +319,8 @@ int main() {
             "Line 2: Hello World! A quick brown fox jumped over a lazy dog",
             25.0f, win_height - 200.0f, 1.0f, glm::vec3(0.0f), win_height);
 
-        RenderSquare(shader, 25.0f, win_height - 90.0f, 200, 120,
-                     glm::vec3(0.3f, 0.0f, 0.9f), win_height, 0.0f, true);
-        RenderSquare(shader, 400, 200, 200, 120, glm::vec3(0.1f, 0.7f, 0.2f),
-                     win_height, 30.0f, true);
-        RenderSquare(shader, 700, 200, 200, 120, glm::vec3(0.1f, 0.7f, 0.2f),
-                     win_height, 30.0f, true);
+        RenderSquare(shader, 0.0f, 0.0f, 1024, 120, ConvertColor("#ff00ff"),
+                     win_height, 0.0f, true);
 
         RenderText(
             shader,
