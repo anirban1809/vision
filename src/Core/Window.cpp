@@ -1,5 +1,6 @@
 #include "../CocoaHelper.h"
 #include "Core/Window.h"
+#include "GLFW/glfw3.h"
 #include <iostream>
 #include <string>
 
@@ -23,6 +24,8 @@ Window::Window(int width, int height, const std::string& name) {
     glfwMakeContextCurrent(window);
     MakeWindowBorderless(window);
 }
+
+bool Window::ShouldClose() const { return glfwWindowShouldClose(window); }
 
 Window::~Window() {
     glfwDestroyWindow(window);

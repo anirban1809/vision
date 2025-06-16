@@ -7,7 +7,6 @@ Application::Application(int width, int height, const std::string& title) {
 
 void Application::Run() {
     OnInit();
-
     while (!window->ShouldClose()) {
         OnUpdate();
         OnRender();
