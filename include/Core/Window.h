@@ -5,6 +5,8 @@ class Window {
     Window(int width, int height, const std::string& name);
     ~Window();
     bool ShouldClose() const;
+    void PollEvents();
+    GLFWwindow* GetGLFWWindow() { return window; }
 
    private:
     GLFWwindow* window;

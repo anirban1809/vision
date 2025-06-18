@@ -25,6 +25,8 @@ Window::Window(int width, int height, const std::string& name) {
     MakeWindowBorderless(window);
 }
 
+void Window::PollEvents() { glfwPollEvents(); }
+
 bool Window::ShouldClose() const { return glfwWindowShouldClose(window); }
 
 Window::~Window() {

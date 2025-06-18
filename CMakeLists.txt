@@ -20,7 +20,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/vendor)
 
 set(PNG_SUPPORT OFF CACHE BOOL "Disable PNG support in FreeType")
 
-file(GLOB_RECURSE SOURCES "src/*.cpp")
+file(GLOB_RECURSE SOURCES "src/*.cpp" "application/*.cpp")
 add_executable(release ${SOURCES} "CocoaHelper.mm" "main.cpp" )
 
 
